@@ -48,7 +48,7 @@ class Board():
         self.colunas = colunas
         self.largura = largura
         self.altura = altura
-        self.borda = 1
+        self.borda = 0
         self.corBloco = corBloco
         self.corBorda = corBorda
 
@@ -102,7 +102,7 @@ class Board():
 class Inventario(Board):
     def render_inven(self, screen, x, y):
         portas = ['AND', 'NOT', 'IN', 'OUT']
-        fios = ['horizontal', 'vertical', 'LtT', 'LtB', 'RtT', 'RtB']
+        #fios = ['horizontal', 'vertical', 'LtT', 'LtB', 'RtT', 'RtB']
         i = 0
         self.x = x
         self.y = y
@@ -115,10 +115,8 @@ class Inventario(Board):
                 yCell = y + (celula.altura + self.borda) * li
                 bloco = pygame.Rect((xCell, yCell, celula.largura, celula.altura))
                 #escolher fio/porta
-                if i < len(fios):
-                    text = fios[i]
-                elif i < len(fios) + len(portas):
-                    text = portas[i-len(fios)]
+                if i < len(portas):
+                    text = portas[i]
                 else:
                     text = '--'
                 i+=1
