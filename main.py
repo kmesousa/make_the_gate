@@ -161,8 +161,11 @@ while running:
             pos = pygame.mouse.get_pos()
             # selecionar no board indicado
             if grid.selecionar_cell(pos):
-                if selecionado:
-                    grid.selecionar_cell(pos).inserir_valor(selecionado.valor)
+                if grid.selecionar_cell(pos).vazio:
+                    if selecionado:
+                        grid.selecionar_cell(pos).inserir_valor(selecionado.valor)
+                    else:
+                        grid.selecionar_cell(pos).mudar()
                 else:
                     grid.selecionar_cell(pos).mudar()
             elif inven.selecionar_cell(pos):
