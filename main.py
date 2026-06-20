@@ -20,33 +20,86 @@ class Porta():
         self.celula = celula
         self.entradas = []
         self.saidas = []
+        self.estado = False
+        self.cor = vermelho
 
     def conectar(self, entrada, saida):
         self.entradas.append(entrada)
         self.saidas.append(saida) 
 
-    def atualizar(self): #eu acho ????
-        pass
-
 class Input(Porta):
     nome = "IN"
     qte_entradas = 0
-    #qte_saidas = 1
-
+    pode_saida = True
+    def switch(self):
+        self.estado = not self.estado
+        if self.estado:
+            self.cor = verde
+        else:
+            self.cor = vermelho
+        self.celula.cor = self.cor
+    def avaliar(self):
+        return
+    
 class Output(Porta):
     nome = "OUT"
     qte_entradas = 1
-    qte_saidas = 0
+    pode_saida = False
+    def avaliar(self):
+        if len(self.entradas)==1:
+            self.estado = self.entradas[0].estado
+        else:
+            self.estado = False
+        if self.estado:
+            self.cor = verde
+        else:
+            self.cor = vermelho
+        self.celula.cor = self.cor
 
 class And(Porta):
     nome = "AND"
     qte_entradas = 2
-    #qte_saidas = 1
+    pode_saida = True
+    def avaliar(self):
+        if len(self.entradas)==2:
+            self.estado = self.entradas[0].estado and self.entradas[1].estado
+        else:
+            self.estado = False
+        if self.estado:
+            self.cor = verde
+        else:
+            self.cor = vermelho
+        self.celula.cor = self.cor
 
 class Not(Porta):
     nome = "NOT"
     qte_entradas = 1
-    #qte_saidas = 1
+    pode_saida = True
+    def avaliar(self):
+        if len(self.entradas)==1:
+            self.estado = not self.entradas[0].estado
+        else:
+            self.estado = False
+        if self.estado:
+            self.cor = verde
+        else:
+            self.cor = vermelho
+        self.celula.cor = self.cor
+
+class Or(Porta):
+    nome = "OR"
+    qte_entradas = 2
+    pode_saida = True
+    def avaliar(self):
+        if len(self.entradas)==2:
+            self.estado = self.entradas[0].estado or self.entradas[1].estado
+        else:
+            self.estado = False
+        if self.estado:
+            self.cor = verde
+        else:
+            self.cor = vermelho
+        self.celula.cor = self.cor
 
 class Conexao():
     def __init__(self, origem, destino):
@@ -62,6 +115,7 @@ class Celula():
         self.cor = cor
         self.vazio = True
         self.porta = None
+        self.valor = None
     
     def inserir_porta(self, porta:Porta):
         self.porta = porta
@@ -80,6 +134,7 @@ class Celula():
         self.vazio = True
         self.cor = azul
         self.porta = None
+        self.valor = None
 
 class Grid():
     def __init__(self, largura, altura, linhas, colunas, corBloco, corBorda):
@@ -125,56 +180,76 @@ class Board(Grid):
         super().__init__(largura, altura, linhas, colunas, corBloco, corBorda)
         #conexões entre blocos
         self.conexoes = []
+        self.portas_ativas = []
 
     def render(self, screen, x, y): #desenhar o grid
         self.x = x
         self.y = y
         pygame.draw.rect(screen, self.corBorda, rect=(x, y, self.largura, self.altura)) #desenhar as bordas/fundo
-        for li in range(self.linhas): #celulas
+        for li in range(self.linhas):
             for col in range(self.colunas):
                 celula = self.identificar_cell(li, col)
                 celula.x = x + (celula.largura + self.borda) * col
                 celula.y = y + (celula.altura + self.borda) * li
                 bloco = pygame.Rect((celula.x, celula.y, celula.largura, celula.altura))
                 pygame.draw.rect(screen, celula.cor, bloco)
+
+    def render_portas(self,screen):
+        for li in range(self.linhas):
+            for col in range(self.colunas):
+                celula = self.identificar_cell(li, col)
                 if celula.porta:
+                    bloco = pygame.Rect((celula.x, celula.y, celula.largura, celula.altura))
+                    pygame.draw.rect(screen, celula.cor, bloco)
+                
                     text = celula.porta.nome
                     text_surface = font.render(text, True, branco)
                     text_rect = text_surface.get_rect()
                     text_rect.center = bloco.center
                     screen.blit(text_surface, text_rect)
 
-    def conectar(self, origem, destino):
-        if origem == destino:
-            #print('nao conectou 1')
+    def conectar(self, origem:Porta, destino:Porta):
+        if origem == destino: #nao criar conexao entre a porta e ela mesma
             return
-        if len(destino.entradas) >= destino.qte_entradas:
-            #print('nao conectou 2')
+        if len(destino.entradas) >= destino.qte_entradas: #nao criar conexao caso as entradas do destino ja estiverem cheias
             return
-        nova = Conexao(origem, destino)
+        if not origem.pode_saida: #nao criar conexao caso a origem nao possa ser saída (caso output)
+            return
+        nova = Conexao(origem, destino) #criar conexao caso passe das verificações anteriores
         self.conexoes.append(nova)
         destino.entradas.append(origem)
         origem.saidas.append(destino)
-        #print('conectou!')
+
+        if origem not in self.portas_ativas:
+            self.portas_ativas.append(origem)
+        if destino not in self.portas_ativas:
+            self.portas_ativas.append(destino)
 
     def limpar(self, cell:Celula):
 
         porta = cell.porta
+        if porta is None:
+            return
 
         for entrada in porta.entradas: #remover a porta da lista de entrada de outras portas
             entrada.saidas.remove(porta)
 
         for saida in porta.saidas: #remover a porta da lista de saida de outras portas
             saida.entradas.remove(porta)
-
-        #refazer a lista de conexoes excluindo as que tenham a porta removida como entrada ou saída
-        board.conexoes = [
-            c for c in board.conexoes
+       
+        self.conexoes = [  #refazer a lista de conexoes excluindo as que tenham a porta removida como entrada ou saída
+            c for c in self.conexoes
             if c.origem != porta
             and c.destino != porta
         ]
 
-        cell.limpar() #limpar a celula
+        if porta in self.portas_ativas:
+            self.portas_ativas.remove(porta) #remover porta da lista de portas ativas
+        cell.limpar() #limpar a celula, porta, cor, vazio, valor
+
+    def avaliar_conexoes(self):
+        for porta in self.portas_ativas:
+            porta.avaliar()
 
     def render_conexoes(self, screen):
         for conexao in self.conexoes:
@@ -182,23 +257,28 @@ class Board(Grid):
             origem = conexao.origem.celula
             destino = conexao.destino.celula
 
-            x1 = origem.x + origem.largura
+            x1 = origem.x + origem.largura - 10
             y1 = origem.y + origem.altura/2
 
-            x2 = destino.x
+            x2 = destino.x + 10
             y2 = destino.y + destino.altura/2
+
+            if origem.porta.estado:
+                cor = verde
+            else:
+                cor = vermelho
 
             pygame.draw.line(
             screen,
-            branco,
+            cor,
             (x1,y1),
             (x2,y2),
-            3
+            10
             )
 
 class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
     def render(self, screen, x, y):
-        portas = [Input, Output, And, Not]
+        portas = [Input, Output, And, Not, Or]
         i = 0
         self.x = x
         self.y = y
@@ -215,7 +295,9 @@ class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
                     text = portas[i].nome
                     celula.inserir_porta(portas[i])
                 else:
-                    text = ''
+                    text = "borracha"
+                    celula.valor = "borracha"
+                    celula.cor = vermelho
                 i+=1
                 #renderizar texto em uma superfice
                 text_surface = font.render(text, True, branco)
@@ -226,6 +308,14 @@ class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
                 pygame.draw.rect(screen, celula.cor, bloco)
                 #desenhar text surface em cima do retangulo
                 screen.blit(text_surface, text_rect)
+
+class Fase():
+    def __init__(self, inventario, limites, objetivo):
+        pass
+
+class Tabela_verdade():
+    def __init__(self, inputs, outputs):
+        pass
 
 #criando os objetos - grid
 board = Board(900, 600, 11, 8, azul, preto)
@@ -248,28 +338,34 @@ while running:
             # pegar a posição do mouse
             pos = pygame.mouse.get_pos()
             # selecionar no board indicado
-            if board.selecionar_cell(pos): #tenho que mudar isso aqui depois
+            if board.selecionar_cell(pos):
                 if board.selecionar_cell(pos).vazio:
                     if selecionado:
-                        #grid.selecionar_cell(pos).inserir_valor(selecionado.valor)
-                        board.selecionar_cell(pos).inserir_porta(selecionado.porta(board.selecionar_cell(pos)))
+                        if selecionado.porta:
+                            board.selecionar_cell(pos).inserir_porta(selecionado.porta(board.selecionar_cell(pos)))
                 else:
-                    if not selecionado:
-                        #board.selecionar_cell(pos).limpar()
-                        board.limpar(board.selecionar_cell(pos))
-                    elif not origem:
-                        origem = board.selecionar_cell(pos).porta
+                    if selecionado:
+                        if selecionado.valor=="borracha":
+                            board.limpar(board.selecionar_cell(pos))
+                        elif not origem:
+                            origem = board.selecionar_cell(pos).porta
+                        else:
+                            destino = board.selecionar_cell(pos).porta
+                            board.conectar(origem, destino)
+                            origem = None
                     else:
-                        destino = board.selecionar_cell(pos).porta
-                        board.conectar(origem, destino)
-                        origem = None
+                        if isinstance(board.selecionar_cell(pos).porta, Input):
+                            board.selecionar_cell(pos).porta.switch()
+
             elif inven.selecionar_cell(pos):
                 selecionado = inven.selecionar_cell(pos)
             else:
                 selecionado = None
 
     board.render(screen, boardX, boardY)
+    board.avaliar_conexoes()
     board.render_conexoes(screen)
+    board.render_portas(screen)
     inven.render(screen, boardX, boardY + board.altura + 10)
 
     pygame.display.flip()
