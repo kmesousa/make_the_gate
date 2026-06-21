@@ -295,15 +295,16 @@ class Board(Grid):
             pygame.draw.line(screen,cor,(x1,y1),(x2,y2),10)
 
 class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
-    def __init__(self, largura, altura, linhas, colunas, corBloco, corBorda, portas):
+    def __init__(self, largura, altura, linhas, colunas, corBloco, corBorda, itens):
         super().__init__(largura, altura, linhas, colunas, corBloco, corBorda)
 
-        self.portas = portas
+        self.itens = itens
 
     def render(self, screen, x, y):
         i = 0
         self.x = x
         self.y = y
+        portas = [Input, Output, Not, And, Or]
         pygame.draw.rect(screen, self.corBorda, rect=(x, y, self.largura, self.altura)) #desenhar as bordas/fundo
         for li in range(self.linhas): #celulas
             for col in range(self.colunas):
@@ -313,17 +314,21 @@ class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
                 yCell = y + (celula.altura + self.borda) * li
                 bloco = pygame.Rect((xCell, yCell, celula.largura, celula.altura))
                 #escolher porta
-                if i < len(self.portas):
-                    text = self.portas[i].nome
-                    celula.inserir_porta(self.portas[i])
+                if i < len(self.itens):
+                    if self.itens[i] in portas:
+                        text = self.itens[i].nome
+                        celula.inserir_porta(self.itens[i])
+                    else:
+                        text = self.itens[i]
+                        celula.valor = self.itens[i]
+                        celula.cor = verde
                 else:
-                    text = "borracha"
-                    celula.valor = "borracha"
+                    text = ""
                     celula.cor = vermelho
                 i+=1
                 #renderizar texto em uma superfice
                 text_surface = font.render(text, True, branco)
-                #alinhas texto ao retantgulo 
+                #alinhas texto ao retantgulo
                 text_rect = text_surface.get_rect()
                 text_rect.center = bloco.center
                 #desenhar retangulo de fundo
@@ -332,7 +337,7 @@ class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
                 screen.blit(text_surface, text_rect)
 
 class Fase():
-    def __init__(self, inventario:list[Porta], limites:dict[Porta:int], objetivo:Porta): 
+    def __init__(self, inventario:list[Porta], limites:dict[Porta:int], objetivo:Porta):
         #inventario = [In, Out, Not], limites = [In: 2, Out: 1], objetivo = Nand
         self.inventario = inventario
         self.limites = limites
@@ -367,8 +372,8 @@ class Tabela():
         resultados = []
         for c in combinacoes:
             resultado = self.board.simular(c)
-            #resultados.append(resultado)
-            self.dados[c] = resultado
+            resultados.append(resultado)
+            #self.dados[c] = resultado #quero botar pra salvar em um dicionário para ser melhor para comparar com os dados objetivo, mas dps faço isso eu acho boa noite
 
     def render(self, screen, x, y):
         pass
@@ -379,7 +384,9 @@ boardX = 20
 boardY = 30
 
 #criando os objetos - inventário
-inven = Inventario(1200, board.identificar_cell(0,0).altura, 1, 6, azul, preto, [Input, Output, Not, And, Or])
+inven = Inventario(1200, board.identificar_cell(0,0).altura, 1, 9, azul, preto, [Input, Output, Not, And, Or])
+ferramentas_lista = ["limpar", "conectar", "testar"]
+ferramentas = Inventario(320, board.identificar_cell(0,0).altura, 1, 3, vermelho, preto, ferramentas_lista)
 selecionado = None
 origem = None
 
@@ -403,18 +410,20 @@ while running:
                             board.selecionar_cell(pos).inserir_porta(selecionado.porta(board.selecionar_cell(pos)))
                 else:
                     if selecionado:
-                        if selecionado.valor=="borracha":
+                        if selecionado.valor=="limpar":
                             board.limpar(board.selecionar_cell(pos))
-                        elif not origem:
-                            origem = board.selecionar_cell(pos).porta
-                        else:
-                            destino = board.selecionar_cell(pos).porta
-                            board.conectar(origem, destino)
-                            origem = None
-                    else:
-                        if isinstance(board.selecionar_cell(pos).porta, Input):
-                            board.selecionar_cell(pos).porta.switch()
-
+                        elif selecionado.valor=="conectar":
+                            if not origem:
+                                origem = board.selecionar_cell(pos).porta
+                            else:
+                                destino = board.selecionar_cell(pos).porta
+                                board.conectar(origem, destino)
+                                origem = None
+                        elif selecionado.valor=="testar":
+                            if isinstance(board.selecionar_cell(pos).porta, Input):
+                                board.selecionar_cell(pos).porta.switch()
+            elif ferramentas.selecionar_cell(pos):
+                selecionado = ferramentas.selecionar_cell(pos)
             elif inven.selecionar_cell(pos):
                 selecionado = inven.selecionar_cell(pos)
             else:
@@ -426,6 +435,7 @@ while running:
     board.render_portas(screen)
     inven.render(screen, boardX, boardY + board.altura + 10)
     tabela.simular()
+    ferramentas.render(screen, boardX + board.largura + 10, board.altura- 40)
 
     pygame.display.flip()
 
