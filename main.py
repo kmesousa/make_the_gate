@@ -1,4 +1,5 @@
 import pygame ; pygame.init()
+import config
 
 #cores
 vermelho = (255, 0, 0)
@@ -23,10 +24,6 @@ class Porta():
         self.estado = False
         self.cor = vermelho
 
-    def conectar(self, entrada, saida):
-        self.entradas.append(entrada)
-        self.saidas.append(saida) 
-
 class Input(Porta):
     nome = "IN"
     qte_entradas = 0
@@ -40,13 +37,13 @@ class Input(Porta):
         self.celula.cor = self.cor
     def avaliar(self):
         return
-    
+
 class Output(Porta):
     nome = "OUT"
     qte_entradas = 1
     pode_saida = False
     def avaliar(self):
-        if len(self.entradas)==1:
+        if len(self.entradas)==self.qte_entradas:
             self.estado = self.entradas[0].estado
         else:
             self.estado = False
@@ -57,12 +54,15 @@ class Output(Porta):
         self.celula.cor = self.cor
 
 class And(Porta):
+    def __init__(self, celula):
+        super().__init__(celula)
+        self.avaliacao = lambda a, b : a and b
+        self.qte_entradas = 2
     nome = "AND"
-    qte_entradas = 2
     pode_saida = True
     def avaliar(self):
-        if len(self.entradas)==2:
-            self.estado = self.entradas[0].estado and self.entradas[1].estado
+        if len(self.entradas)==self.qte_entradas:
+            self.estado = self.avaliacao(self.entradas[0].estado, self.entradas[1].estado)
         else:
             self.estado = False
         if self.estado:
@@ -72,12 +72,15 @@ class And(Porta):
         self.celula.cor = self.cor
 
 class Not(Porta):
+    def __init__(self, celula):
+        super().__init__(celula)
+        self.avaliacao = lambda a: not a
+        self.qte_entradas = 1
     nome = "NOT"
-    qte_entradas = 1
     pode_saida = True
     def avaliar(self):
-        if len(self.entradas)==1:
-            self.estado = not self.entradas[0].estado
+        if len(self.entradas)==self.qte_entradas:
+            self.estado = self.avaliacao(self.entradas[0].estado)
         else:
             self.estado = False
         if self.estado:
@@ -87,12 +90,15 @@ class Not(Porta):
         self.celula.cor = self.cor
 
 class Or(Porta):
+    def __init__(self, celula):
+        super().__init__(celula)
+        self.avaliacao = lambda a, b : a or b
+        self.qte_entradas = 2
     nome = "OR"
-    qte_entradas = 2
     pode_saida = True
     def avaliar(self):
-        if len(self.entradas)==2:
-            self.estado = self.entradas[0].estado or self.entradas[1].estado
+        if len(self.entradas)==self.qte_entradas:
+            self.estado = self.avaliacao(self.entradas[0].estado, self.entradas[1].estado)
         else:
             self.estado = False
         if self.estado:
@@ -116,7 +122,7 @@ class Celula():
         self.vazio = True
         self.porta = None
         self.valor = None
-    
+
     def inserir_porta(self, porta:Porta):
         self.porta = porta
         self.cor = vermelho
@@ -159,13 +165,13 @@ class Grid():
 
     def identificar_cell (self, li, col)-> Celula:
         return self.matriz[li][col]
-    
+
     def checar(self): #imprimir a matriz
         for i in range(len(self.matriz)):
             for j in range(len(self.matriz[0])):
                 print(self.matriz[i][j].valor, end=' ')
             print('')
-    
+
     def selecionar_cell(self, pos):
             # converter as cordenadas x/y da tela para cordenadas do tabuleiro
             col = (pos[0] - self.x)//(self.identificar_cell(0,0).largura + self.borda)
@@ -174,7 +180,7 @@ class Grid():
             if 0 <= li < self.linhas and 0 <= col < self.colunas:
                 #self.identificar_cell(int(li), int(col)).mudar()
                 return self.identificar_cell(int(li), int(col))
-            
+
 class Board(Grid):
     def __init__(self, largura, altura, linhas, colunas, corBloco, corBorda):
         super().__init__(largura, altura, linhas, colunas, corBloco, corBorda)
@@ -201,7 +207,7 @@ class Board(Grid):
                 if celula.porta:
                     bloco = pygame.Rect((celula.x, celula.y, celula.largura, celula.altura))
                     pygame.draw.rect(screen, celula.cor, bloco)
-                
+
                     text = celula.porta.nome
                     text_surface = font.render(text, True, branco)
                     text_rect = text_surface.get_rect()
@@ -226,23 +232,18 @@ class Board(Grid):
             self.portas_ativas.append(destino)
 
     def limpar(self, cell:Celula):
-
         porta = cell.porta
         if porta is None:
             return
-
         for entrada in porta.entradas: #remover a porta da lista de entrada de outras portas
             entrada.saidas.remove(porta)
-
         for saida in porta.saidas: #remover a porta da lista de saida de outras portas
             saida.entradas.remove(porta)
-       
         self.conexoes = [  #refazer a lista de conexoes excluindo as que tenham a porta removida como entrada ou saída
             c for c in self.conexoes
             if c.origem != porta
             and c.destino != porta
         ]
-
         if porta in self.portas_ativas:
             self.portas_ativas.remove(porta) #remover porta da lista de portas ativas
         cell.limpar() #limpar a celula, porta, cor, vazio, valor
@@ -251,34 +252,55 @@ class Board(Grid):
         for porta in self.portas_ativas:
             porta.avaliar()
 
+    def simular(self, combinacao): #simular o output do circuito atual para diferentes estados dos inputs
+        inputs = []
+        estado_original = []
+        for porta in self.portas_ativas:
+            if isinstance(porta, Input):
+                inputs.append(porta)
+                estado_original.append(porta.estado)
+        if len(inputs)==0:
+            return
+
+        for i in range(len(inputs)):
+            inputs[i].estado = combinacao[i]
+
+        self.avaliar_conexoes()
+
+        resultado = None
+        for porta in self.portas_ativas:
+            if isinstance(porta, Output):
+                resultado = porta.estado
+        if resultado == None:
+            return
+
+        for i in range(len(inputs)):
+            inputs[i].estado = estado_original[i]
+        self.avaliar_conexoes()
+
+        return resultado
+
     def render_conexoes(self, screen):
         for conexao in self.conexoes:
-
             origem = conexao.origem.celula
             destino = conexao.destino.celula
-
             x1 = origem.x + origem.largura - 10
             y1 = origem.y + origem.altura/2
-
             x2 = destino.x + 10
             y2 = destino.y + destino.altura/2
-
             if origem.porta.estado:
                 cor = verde
             else:
                 cor = vermelho
-
-            pygame.draw.line(
-            screen,
-            cor,
-            (x1,y1),
-            (x2,y2),
-            10
-            )
+            pygame.draw.line(screen,cor,(x1,y1),(x2,y2),10)
 
 class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
+    def __init__(self, largura, altura, linhas, colunas, corBloco, corBorda, portas):
+        super().__init__(largura, altura, linhas, colunas, corBloco, corBorda)
+
+        self.portas = portas
+
     def render(self, screen, x, y):
-        portas = [Input, Output, And, Not, Or]
         i = 0
         self.x = x
         self.y = y
@@ -291,9 +313,9 @@ class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
                 yCell = y + (celula.altura + self.borda) * li
                 bloco = pygame.Rect((xCell, yCell, celula.largura, celula.altura))
                 #escolher porta
-                if i < len(portas):
-                    text = portas[i].nome
-                    celula.inserir_porta(portas[i])
+                if i < len(self.portas):
+                    text = self.portas[i].nome
+                    celula.inserir_porta(self.portas[i])
                 else:
                     text = "borracha"
                     celula.valor = "borracha"
@@ -310,11 +332,45 @@ class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
                 screen.blit(text_surface, text_rect)
 
 class Fase():
-    def __init__(self, inventario, limites, objetivo):
-        pass
+    def __init__(self, inventario:list[Porta], limites:dict[Porta:int], objetivo:Porta): 
+        #inventario = [In, Out, Not], limites = [In: 2, Out: 1], objetivo = Nand
+        self.inventario = inventario
+        self.limites = limites
+        self.objetivo = objetivo
 
-class Tabela_verdade():
-    def __init__(self, inputs, outputs):
+class Tabela():
+    def __init__(self, board:Board):
+        self.board = board
+        self.dados = []
+        pass
+    def simular(self):
+        def gerar_combinacoes(qte_inputs):
+            if qte_inputs < 1:
+                return
+            if qte_inputs == 1:
+                return [(True,), (False,)]
+            combinacoes = []
+            anteriores = gerar_combinacoes(qte_inputs - 1)
+            for comb in anteriores:
+                combinacoes.append(comb + (True,))
+                combinacoes.append(comb + (False,))
+            return combinacoes
+
+        inputs = []
+        for porta in self.board.portas_ativas:
+            if isinstance(porta, Input):
+                inputs.append(porta)
+
+        if len(inputs)==0:
+            return
+        combinacoes = gerar_combinacoes(len(inputs))
+        resultados = []
+        for c in combinacoes:
+            resultado = self.board.simular(c)
+            #resultados.append(resultado)
+            self.dados[c] = resultado
+
+    def render(self, screen, x, y):
         pass
 
 #criando os objetos - grid
@@ -323,9 +379,11 @@ boardX = 20
 boardY = 30
 
 #criando os objetos - inventário
-inven = Inventario(1120, board.identificar_cell(0,0).altura, 1, 10, azul, preto)
+inven = Inventario(1200, board.identificar_cell(0,0).altura, 1, 6, azul, preto, [Input, Output, Not, And, Or])
 selecionado = None
 origem = None
+
+tabela = Tabela(board)
 
 #rodando o programa
 running = True
@@ -367,6 +425,7 @@ while running:
     board.render_conexoes(screen)
     board.render_portas(screen)
     inven.render(screen, boardX, boardY + board.altura + 10)
+    tabela.simular()
 
     pygame.display.flip()
 
