@@ -1,20 +1,25 @@
-import pygame ; pygame.init()
-import config
-from portas import Porta, Input, Output, And, Not, Nand, Or, Xor
+import pygame
+import os
+import classes.config as config
 
-#cores
-vermelho = (255, 0, 0)
-verde = (40, 160, 30)
-azul = (0, 0, 255)
-branco = (255, 255, 255)
-preto = (0, 0, 0)
+pygame.init()
 
 #configurações
 W = 1280
 H = 720
 screen = pygame.display.set_mode((W, H))
 pygame.display.set_caption('make the gate')
-font = pygame.font.SysFont("Arial", 30)
+font = pygame.font.Font('assets/font/DotGothic16-Regular.ttf', 28)
+clock = pygame.time.Clock()
+
+#música
+pygame.mixer.music.load('assets/audio/background.mp3')
+pygame.mixer.music.play()
+som_finalizar = pygame.mixer.Sound('assets/audio/victory.mp3')
+
+#precisam das configurações para serem importadas
+from classes.portas import Porta, Input, Output, And, Not, Nand, Or, Xor
+import classes.tools as tools
 
 #classes
 class Conexao():
@@ -23,36 +28,35 @@ class Conexao():
         self.destino = destino
 
 class Celula():
-    def __init__(self, cor, largura, altura):
+    def __init__(self,largura, altura, sprite):
         self.largura = largura
         self.altura = altura
         self.x = 0
         self.y = 0
-        self.cor = cor
+        self.sprite = sprite
+        self.sprite_original = sprite
         self.vazio = True
         self.porta = None
         self.valor = None
 
     def inserir_porta(self, porta:Porta):
         self.porta = porta
-        self.cor = vermelho
         self.vazio = False
 
     def limpar(self):
         self.vazio = True
-        self.cor = azul
         self.porta = None
         self.valor = None
+        self.sprite = self.sprite_original
 
 class Grid():
-    def __init__(self, largura, altura, linhas, colunas, corBloco, corBorda):
+    def __init__(self, largura, altura, linhas, colunas, sprite):
         self.linhas = linhas
         self.colunas = colunas
         self.largura = largura
         self.altura = altura
-        self.borda = 1
-        self.corBloco = corBloco
-        self.corBorda = corBorda
+        self.borda = 0
+        self.sprite = sprite
 
         #células
         larguraCell = largura/colunas - self.borda
@@ -63,7 +67,7 @@ class Grid():
         for i in range(linhas):
             self.matriz.append([])
             for j in range(colunas):
-                self.matriz[i].append(Celula(self.corBloco, larguraCell, alturaCell))
+                self.matriz[i].append(Celula(larguraCell, alturaCell, self.sprite))
 
     def identificar_cell (self, li, col)-> Celula:
         return self.matriz[li][col]
@@ -78,37 +82,32 @@ class Grid():
                 return self.identificar_cell(int(li), int(col))
 
 class Board(Grid):
-    def __init__(self, largura, altura, linhas, colunas, corBloco, corBorda):
-        super().__init__(largura, altura, linhas, colunas, corBloco, corBorda)
+    def __init__(self, largura, altura, linhas, colunas, sprite, fundo=None):
+        super().__init__(largura, altura, linhas, colunas,  sprite)
         #conexões entre blocos
         self.conexoes = []
         self.portas_ativas = []
+        self.fundo = None
 
     def render(self, screen, x, y): #desenhar o grid
         self.x = x
         self.y = y
-        pygame.draw.rect(screen, self.corBorda, rect=(x, y, self.largura, self.altura)) #desenhar as bordas/fundo
+        #fazer para desenhar a borda aq dps
+        screen.blit(fundo, (self.x - 16, self.y - 16))
         for li in range(self.linhas):
             for col in range(self.colunas):
                 celula = self.identificar_cell(li, col)
                 celula.x = x + (celula.largura + self.borda) * col
                 celula.y = y + (celula.altura + self.borda) * li
-                bloco = pygame.Rect((celula.x, celula.y, celula.largura, celula.altura))
-                pygame.draw.rect(screen, celula.cor, bloco)
+                screen.blit(self.sprite, (celula.x, celula.y))
 
     def render_portas(self,screen):
         for li in range(self.linhas):
             for col in range(self.colunas):
                 celula = self.identificar_cell(li, col)
                 if celula.porta:
-                    bloco = pygame.Rect((celula.x, celula.y, celula.largura, celula.altura))
-                    pygame.draw.rect(screen, celula.cor, bloco)
-
-                    text = celula.porta.nome
-                    text_surface = font.render(text, True, branco)
-                    text_rect = text_surface.get_rect()
-                    text_rect.center = bloco.center
-                    screen.blit(text_surface, text_rect)
+                    sprite = pygame.transform.scale(celula.porta.sprite, (celula.largura, celula.altura))
+                    screen.blit(sprite, (celula.x, celula.y))
 
     def conectar(self, origem:Porta, destino:Porta):
         if origem == destino: #nao criar conexao entre a porta e ela mesma
@@ -185,17 +184,23 @@ class Board(Grid):
             x2 = destino.x + 10
             y2 = destino.y + destino.altura/2
             if origem.porta.estado:
-                cor = verde
+                cor = config.verde
             else:
-                cor = vermelho
+                cor = config.vermelho
             pygame.draw.line(screen,cor,(x1,y1),(x2,y2),10)
 
     def reset(self):
-        pass
+        for porta in self.portas_ativas:
+            self.limpar_cell(porta.celula)
+        for li in range(self.linhas):
+            for col in range(self.colunas):
+                celula = self.identificar_cell(li, col)
+                if celula.porta:
+                    self.limpar_cell(celula)
 
 class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
-    def __init__(self, largura, altura, linhas, colunas, corBloco, corBorda, itens):
-        super().__init__(largura, altura, linhas, colunas, corBloco, corBorda)
+    def __init__(self, largura, altura, linhas, colunas, sprite, itens):
+        super().__init__(largura, altura, linhas, colunas, sprite)
 
         self.itens = itens
 
@@ -203,37 +208,37 @@ class Inventario(Grid): #vou ter q refazer esse aqui tudo provavelmente RIP
         i = 0
         self.x = x
         self.y = y
-        portas = [Input, Output, Not, And, Or]
-        pygame.draw.rect(screen, self.corBorda, rect=(x, y, self.largura, self.altura)) #desenhar as bordas/fundo
+        portas = [Input, Output, Not, And, Or, Nand, Xor]
+        tools_lista = [tools.continuar, tools.reiniciar, tools.sair]
+        seta_sprite = pygame.image.load('assets/tools/seta_selecionado.png').convert_alpha()
         for li in range(self.linhas): #celulas
             for col in range(self.colunas):
+                selecionado = False
                 #retangulo
                 celula = self.identificar_cell(li, col)
                 xCell = x + (celula.largura + self.borda) * col
                 yCell = y + (celula.altura + self.borda) * li
-                bloco = pygame.Rect((xCell, yCell, celula.largura, celula.altura))
-                #escolher porta
                 if i < len(self.itens):
-                    if self.itens[i] in portas:
-                        text = self.itens[i].nome
-                        celula.inserir_porta(self.itens[i])
+                    if self.itens[i].nome:
+                        celula.valor = self.itens[i].nome
+                        if self.itens[i] in portas:
+                            celula.inserir_porta(self.itens[i])
+                        if type(self.itens[i])==tools.Tool:
+                            if self.itens[i].selecionado:
+                                selecionado = True
+                        sprite = self.itens[i].sprite
                     else:
-                        text = self.itens[i]
-                        celula.valor = self.itens[i]
-                        celula.cor = verde
+                        sprite = pygame.image.load('assets/celula_iven.png').convert_alpha()
                 else:
-                    text = "-"
-                    celula.cor = vermelho
+                    sprite = pygame.image.load('assets/celula_iven.png').convert_alpha()
+                    celula.cor = config.vermelho
                 i+=1
-                #renderizar texto em uma superfice
-                text_surface = font.render(text, True, branco)
-                #alinhas texto ao retantgulo
-                text_rect = text_surface.get_rect()
-                text_rect.center = bloco.center
-                #desenhar retangulo de fundo
-                pygame.draw.rect(screen, celula.cor, bloco)
-                #desenhar text surface em cima do retangulo
-                screen.blit(text_surface, text_rect)
+                screen.blit(sprite, (xCell, yCell))
+                if selecionado:
+                    screen.blit(seta_sprite, (xCell - 4, yCell))
+
+    def atualizar(self, portas_novas):
+        self.itens = portas_novas
 
 class Fase():
     def __init__(self, inventario:list[Porta], limites:dict[Porta:int], objetivo:Porta, nome:str):
@@ -243,14 +248,19 @@ class Fase():
         self.objetivo = objetivo
         self.nome = nome
         self.vitoria = False
+    def render(self):
+        text = f'{self.nome}, venceu: {self.vitoria}'
+        text_surface = font.render(text, True, config.branco)
+        text_rect = text_surface.get_rect()
+        screen.blit(text_surface, text_rect)
 
 class Tabela():
-    def __init__(self, board:Board, fase:Fase):
+    def __init__(self, board:Board, fases, fase_atual:Fase):
         self.board = board
-        self.fase = fase
-        self.resultados = []
-        self.combinacoes = []
-        self.avaliacao = fase.objetivo.avaliacao
+        self.fases = fases
+        self.fase = fase_atual
+        self.avaliacao = fases[fase_atual].objetivo.avaliacao
+        self.dados = None
 
     def simular(self):
         def gerar_combinacoes(qte_inputs): #criar as combinações de valore para os inputs a partir da quantidade dada
@@ -265,6 +275,14 @@ class Tabela():
                 combinacoes.append(comb + (False,))
             return combinacoes
 
+        combinacoes = gerar_combinacoes(self.fases[fase_atual].limites[Input]) #pq esse fase atual tá assim mds tenho que ajeitar
+        self.combinacoes = combinacoes
+
+        desejados = []
+        for i in range(len(combinacoes)):
+            desejados.append(self.avaliacao(*combinacoes[i]))
+        self.desejados = desejados
+
         self.inputs = [] #pode ser os inputs atuais ou os inputs dados na fase
         self.outputs = []
         for porta in self.board.portas_ativas:
@@ -273,107 +291,317 @@ class Tabela():
             if isinstance(porta, Output):
                 self.outputs.append(porta)
 
-        if len(self.inputs)==0 or len(self.outputs)==0:
+        #if len(self.inputs)==0 or len(self.outputs)==0:
+        if len(self.inputs)<self.fases[self.fase].limites[Input] or len(self.outputs)<self.fases[self.fase].limites[Output]:
             return
 
-        #combinacoes = gerar_combinacoes(len(self.inputs))
-        combinacoes = gerar_combinacoes(self.fase.limites[Input])
         dados = []
         vitoria = True
         for i in range(len(combinacoes)):
             resultado = self.board.simular(combinacoes[i])
-            desejado = self.avaliacao(*combinacoes[i])
+            #desejado = self.avaliacao(*combinacoes[i])
+            desejado = desejados[i]
             comparacao = resultado==desejado
 
-            dados.append(combinacoes[i])
-            dados.append(desejado)
-            dados.append(resultado)
-            dados.append(comparacao)
+            pilha = []
+            pilha.append(combinacoes[i])
+            pilha.append(desejado)
+            pilha.append(resultado)
+            pilha.append(comparacao)
+            dados.append(pilha)
             if not comparacao:
                 vitoria = False
 
         self.dados = dados
-        self.fase.vitoria = vitoria
+        self.fases[fase_atual].vitoria = vitoria
 
-    def render(self, screen, x, y):
+    def atualizar (self, nova_fase):
+        self.fase_atual = nova_fase
+        self.avaliacao = self.fases[nova_fase].objetivo.avaliacao
+
+    def render_text(self):
         print(self.dados)
 
-#criando os objetos - grid
-board = Board(900, 600, 11, 8, azul, preto)
-boardX = 20
-boardY = 30
+    def render(self, screen, x, y):
+        qte_inputs = self.fases[fase_atual].limites[Input]
+        qte_outputs = self.fases[fase_atual].limites[Output]
+        qte_combinacoes = 2**qte_inputs
+        combinacoes = self.combinacoes
+        output_fase = self.desejados
 
-#criando os objetos - inventário
-inven_lista = [Input, Output, Not, And, Or]
-inven = Inventario(1200, board.identificar_cell(0,0).altura, 1, 9, azul, preto, inven_lista )
-ferramentas_lista = ["limpar", "conectar", "testar", "finalizar"]
-ferramentas = Inventario(320, board.identificar_cell(0,0).altura*4, 4, 1, vermelho, preto, ferramentas_lista)
-selecionado = None
-origem = None
+        #ajustando o fundo da tabela
+        fundo_original = pygame.image.load('assets/tabela/tabela_fundo.png')
+        altura = 16*3*(qte_combinacoes + 1)
+        fundo = pygame.transform.scale(fundo_original,(fundo_original.get_width(), altura ))
+        y -= altura
+        screen.blit(fundo, (x, y))
+
+        #sprites dos valores TRUE e FALSE
+        true_sprite = pygame.image.load('assets/tabela/1.png')
+        false_sprite = pygame.image.load('assets/tabela/0.png')
+
+        #cabeçário inputs e valores das combinações
+        for i in range(qte_inputs):
+            input_sprite = pygame.image.load('assets/tabela/IN.png')
+            screen.blit(input_sprite, (x + 16*(i*3+1), y + 16))
+            for j in range(qte_combinacoes):
+                if combinacoes[j][i]:
+                    sprite = true_sprite
+                else:
+                    sprite = false_sprite
+                screen.blit(sprite, (x + 16*(i*3+1), y + 16*(3 + j*3)))
+                x_ultimo = x + 16*(i*3+1)
+
+        #cabeçario fase e outputs desejados
+        out_fase_sprite = pygame.image.load('assets/tabela/fase.png')
+        screen.blit(out_fase_sprite, (x_ultimo + 16*3 , y + 16))
+        x_ultimo += 16*3
+        for i in range(len(output_fase)):
+            if output_fase[i]:
+                sprite = true_sprite
+            else:
+                sprite = false_sprite
+            screen.blit(sprite, (x_ultimo + 16, y + 16*(3 + i*3)))
+
+        #cabeçario player e outputs atuais
+        player_sprite = pygame.image.load('assets/tabela/player.png')
+        empty_sprite = pygame.image.load('assets/tabela/x.png')
+        screen.blit(player_sprite, (x_ultimo+16*5, y + 16))
+        for i in range(qte_combinacoes):
+            if self.dados == None:
+                sprite = empty_sprite
+            else:
+                if self.dados[2]== None:
+                    sprite = empty_sprite
+                elif self.dados[2]:
+                    sprite = true_sprite
+                else:
+                    sprite = false_sprite
+            screen.blit(sprite, (x_ultimo + 16*7, y + 16*(3 + i*3)))
+
+        #type 1 tudo certo [[(True, True), True, True, True], [(True, False), False, False, True], [(False, True), False, False, True], [(False, False), False, False, True]]
+        #type 2 circuito errado
+        #type 3 mais de 1 output[[(True,), False, None, False], [(False,), True, None, False]]
+
+    def render_info_fase (self, screen): #pode mover esse metodo pra classe Jogo dps, acho que fica melhor
+        qte_fases = len(self.fases)
+        atual = self.fase_atual
+        fase_atual = self.fases[atual]
+
+        #bara de progresso
+        sprite_barra = pygame.image.load('assets/fase/barra_total.png').convert_alpha()
+        sprite_progresso = pygame.image.load('assets/fase/barra_progresso.png').convert_alpha()
+        x = W - 16 - sprite_barra.get_width()
+        y = 16
+        screen.blit(sprite_barra, (x, y))
+        sprite_progresso_atual = pygame.transform.scale(sprite_progresso,(sprite_barra.get_width()*atual/qte_fases, sprite_barra.get_height()))
+        screen.blit(sprite_progresso_atual, (x + sprite_barra.get_width() - sprite_progresso_atual.get_width(), y))
+
+        text = f'fase {atual+1}: crie um {f'{fase_atual.nome}'.upper()}'
+        text_surface = font.render(text, True, config.branco)
+        screen.blit(text_surface, (16*2,8))
+
+#sprites
+sprite_board = pygame.image.load('assets/celula_board.png').convert_alpha()
+fundo = pygame.image.load('assets/borda_tabuleiro.png').convert_alpha()
+sprite_iven = pygame.image.load('assets/celula_iven.png').convert_alpha()
+title = pygame.image.load('assets/title.png').convert_alpha()
+
+#board
+board = Board(880, 528, 11, 11, sprite_board, fundo)
+boardX = 16*3
+boardY = 16*5
+
+#inventário e ferramentas
+inven_lista = [Input, Output, Not, And]
+inven = Inventario(1170, 64, 1, 10, sprite_board, inven_lista)
+ferramentas_lista = [tools.borracha, tools.conectar, tools.testar, tools.finalizar]
+ferramentas = Inventario(320, board.identificar_cell(0,0).altura*(len(inven_lista)), len(inven_lista), 1, sprite_iven, ferramentas_lista)
+
+#opcoes para quando estiver pausado
+opcoes_lista = [tools.continuar, tools.reiniciar, tools.sair]
+opcoes = Inventario(320, board.identificar_cell(0,0).altura*(len(opcoes_lista)), len(opcoes_lista), 1, sprite_iven, opcoes_lista)
 
 #fases
-fase_not = Fase([Input, Output, Not, And], {Input:1, Output:1}, Not, "Fase 1: Not")
-fase_and = Fase([Input, Output, Not, And], {Input:2, Output:1}, And, "Fase 2: And")
-fase_nand = Fase([Input, Output, Not, And], {Input:2, Output:1}, Nand, "Fase 3: Nand")
-fase_or = Fase([Input, Output, Not, And, Nand], {Input:2, Output:1}, Or, "Fase 4: Or")
-fase_xor = Fase([Input, Output, Not, And, Nand, Or], {Input:2, Output:1}, Xor, "Fase 4: Xor")
+fase_not = Fase([Input, Output, Not, And], {Input:1, Output:1}, Not, "Not")
+fase_and = Fase([Input, Output, Not, And], {Input:2, Output:1}, And, "And")
+fase_nand = Fase([Input, Output, Not, And], {Input:2, Output:1}, Nand, "Nand")
+fase_or = Fase([Input, Output, Not, And, Nand], {Input:2, Output:1}, Or, "Or")
+fase_xor = Fase([Input, Output, Not, And, Nand, Or], {Input:2, Output:1}, Xor, "Xor")
+fase_and2 = Fase([Input, Output, Nand], {Input:2, Output:1}, Xor, "And")
 
-fases = [fase_not, fase_and, fase_nand, fase_or, fase_xor]
+fases = [fase_and, fase_nand, fase_or, fase_xor, fase_not]
+fases = [fase_and, fase_nand]
+fase_atual = 0
 
-fase = fases[0]
+#tabela
+tabela = Tabela(board, fases, fase_atual)
 
-tabela = Tabela(board, fase)
+#ações de execução
+def carregar_fase(fase:Fase):
+    board.reset()
+    tools.finalizar.desativar()
+    inven.atualizar(fases[fase_atual].inventario)
+    tabela.atualizar(fase)
 
-#rodando o programa
-running = True
-while running:
-
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            # pegar a posição do mouse
-            pos = pygame.mouse.get_pos()
-            # selecionar no board indicado
-            if board.selecionar_cell(pos):
-                if board.selecionar_cell(pos).vazio:
-                    if selecionado:
-                        if selecionado.porta:
-                            board.selecionar_cell(pos).inserir_porta(selecionado.porta(board.selecionar_cell(pos)))
-                else:
-                    if selecionado:
-                        if selecionado.valor=="limpar":
-                            board.limpar_cell(board.selecionar_cell(pos))
-                        elif selecionado.valor=="conectar":
-                            if not origem:
-                                origem = board.selecionar_cell(pos).porta
-                            else:
-                                destino = board.selecionar_cell(pos).porta
-                                board.conectar(origem, destino)
-                                origem = None
-                        elif selecionado.valor=="testar":
-                            if isinstance(board.selecionar_cell(pos).porta, Input):
-                                board.selecionar_cell(pos).porta.switch()
-                        elif selecionado.valor=="finalizar":
-                            if fase.vitoria:
-                                running = False
-            elif ferramentas.selecionar_cell(pos):
-                selecionado = ferramentas.selecionar_cell(pos)
-            elif inven.selecionar_cell(pos):
-                selecionado = inven.selecionar_cell(pos)
-            else:
-                selecionado = None
-
+def render_fase():
+    screen.fill(config.preto)
     board.render(screen, boardX, boardY)
     board.avaliar_conexoes()
     board.render_conexoes(screen)
     board.render_portas(screen)
-    inven.render(screen, boardX, boardY + board.altura + 10)
-    ferramentas.render(screen, boardX + board.largura + 10, board.altura- ferramentas.altura)
+    inven.render(screen, boardX - 16, boardY + board.altura + 16*2)
+    ferramentas.render(screen, boardX + board.largura + 16*2, board.altura - ferramentas.altura + 16*4)
     tabela.simular()
+    tabela.render(screen, boardX + board.largura + 16*2, board.altura - ferramentas.altura + 16*4 )
+    tabela.render_info_fase(screen)
+
+def render_menu():
+    sprites = ['assets/iniciar1.png', 'assets/iniciar2.png'] #queria fazer pra ficar mudando mas deu preguiça
+    iniciar = pygame.image.load(sprites[0]).convert_alpha()
+    screen.fill(config.azul_escuro)
+    screen.blit(title, ((W-title.get_width())//2, H//2-title.get_height()//2))
+    screen.blit(iniciar, ((W-iniciar.get_width())//2, H//2-title.get_height()//2 +  title.get_height()))
+
+def render_pause():
+    for event in pygame.event.get():
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = pygame.mouse.get_pos()
+            if opcoes.selecionar_cell(pos):
+                opcao = opcoes.selecionar_cell(pos)
+                match opcao.valor:
+                    case "continuar":
+                        pass
+                    case "reiniciar":
+                        fase_atual = 0
+                    case "sair":
+                        running = False
+    render_fase()
+    overlay = pygame.Surface((W, H), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 210))
+    screen.blit(overlay, (0, 0))
+    opcoes.render(screen, (W-opcoes.largura)//2, (H-opcoes.altura)//2)
+
+def render_fim():
+    screen.fill(config.azul_escuro)
+    text = f'fim'
+    text_surface = font.render(text, True, config.branco)
+    screen.blit(text_surface, (W//2, H//2))
+
+#variaveis de controle da execução
+selecionado = None
+origem = None
+running = True
+estado = "menu"
+
+#rodando o programa
+while running:
+    #checar selecionado
+
+    for i in ferramentas_lista:
+        if selecionado:
+            if selecionado.valor==i.nome:
+                i.selecionar()
+            else:
+                i.descelecionar()
+        else:
+            i.descelecionar()
+
+    match estado:
+        case "menu":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+                    fase_atual = 0
+                    carregar_fase(fase_atual)
+                    estado = "fase"
+            render_menu()
+
+        case "fase":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:
+                        estado = "pause"
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    # pegar a posição do mouse
+                    pos = pygame.mouse.get_pos()
+                    # selecionar no board indicado
+                    if board.selecionar_cell(pos):
+                        if board.selecionar_cell(pos).vazio:
+                            if selecionado:
+                                if selecionado.porta:
+                                    board.selecionar_cell(pos).inserir_porta(selecionado.porta(board.selecionar_cell(pos)))
+                        else:
+                            if selecionado:
+                                if selecionado.valor=="borracha":
+                                    board.limpar_cell(board.selecionar_cell(pos))
+                                elif selecionado.valor=="conectar":
+                                    if not origem:
+                                        origem = board.selecionar_cell(pos).porta
+                                    else:
+                                        destino = board.selecionar_cell(pos).porta
+                                        board.conectar(origem, destino)
+                                        origem = None
+                                elif selecionado.valor=="testar":
+                                    if isinstance(board.selecionar_cell(pos).porta, Input):
+                                        board.selecionar_cell(pos).porta.switch()
+                    elif ferramentas.selecionar_cell(pos):
+                        selecionado = ferramentas.selecionar_cell(pos)
+                        if selecionado.valor=="finalizar":
+                            if fases[fase_atual].vitoria:
+                                fase_atual +=1
+                                som_finalizar.play()
+                                if fase_atual >= len(fases):
+                                    estado="fim"
+                                    pygame.mixer.music.stop()
+                                    pygame.mixer.music.load('assets/audio/fim.mp3')
+                                    pygame.mixer.music.play()
+                                else:
+                                    carregar_fase(fase_atual)
+                    elif inven.selecionar_cell(pos):
+                        selecionado = inven.selecionar_cell(pos)
+                    else:
+                        selecionado = None
+            if estado=="fase":
+                if fases[fase_atual].vitoria:
+                    tools.finalizar.ativar()
+                else:
+                    tools.finalizar.desativar()
+                render_fase()
+
+        case "pause":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    pos = pygame.mouse.get_pos()
+                    if opcoes.selecionar_cell(pos):
+                        opcao = opcoes.selecionar_cell(pos)
+                        match opcao.valor:
+                            case "continuar":
+                                estado = "fase"
+                            case "reiniciar":
+                                fase_atual = 0
+                                carregar_fase(fase_atual)
+                                estado = "fase"
+                            case "sair":
+                                running = False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:
+                        estado = "fase"
+            render_pause()
+
+        case "fim":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+            render_fim()
 
     pygame.display.flip()
+    clock.tick(60)
 
 pygame.quit()
-print(tabela.dados)
-print(fase.vitoria)
+tabela.render_text()
